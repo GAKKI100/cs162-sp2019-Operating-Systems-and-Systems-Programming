@@ -1,0 +1,11 @@
+1.file format: elf32-i386
+ architecture: i386
+
+2. .text .data .dynamic
+
+3. .text holds main
+   address: 0x08048470
+
+4. don't see
+   because they are allocated during the runtime
+ 

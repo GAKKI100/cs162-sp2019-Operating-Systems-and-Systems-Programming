@@ -1,0 +1,29 @@
+1.(char **) 0xbfffef04
+2.0xbffff0e1 "/usr/cs162/ta/hw0/wc"
+3.{int (int, char **)} 0x804868e <main>
+4.main (argc=1, argv=0xbfffef04) at wc.c:40
+5.
+Stack level 0, frame at 0xbfffee70:
+ eip = 0x80486a1 in main (wc.c:40); saved eip = 0xb7e23637
+ source language c.
+ Arglist at 0xbfffee58, args: argc=1, argv=0xbfffef04
+ Locals at 0xbfffee58, Previous frame's sp is 0xbfffee70
+ Saved registers:
+ ebp at 0xbfffee58, eip at 0xbfffee6c
+6.
+eax            0xbfffee70       -1073746320
+ecx            0xbfffee70       -1073746320
+edx            0xbfffee94       -1073746284
+ebx            0x0      0
+esp            0xbfffee40       0xbfffee40
+ebp            0xbfffee58       0xbfffee58
+esi            0xb7fbd000       -1208233984
+edi            0xb7fbd000       -1208233984
+eip            0x80486a1        0x80486a1 <main+19>
+eflags         0x282    [ SF IF ]
+cs             0x73     115
+ss             0x7b     123
+ds             0x7b     123
+es             0x7b     123
+fs             0x0      0
+gs             0x33     51

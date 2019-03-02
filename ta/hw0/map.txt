@@ -1,0 +1,20 @@
+1.main and recur are in the .text segment. 
+   static data is in the .data section. 
+
+2.
+  .text: holds the instructions
+  .bss: holds uninitialized global and static variables.
+  .data: holds initialized global and static variables.
+  .rodata: holds read-only data, such as constants and string literals.
+  .interp: loads and links shared libraries required by the executable.
+  .plt: is the relocation table that connects symbolic references with symbolic definitions, such as when a function is called.
+
+3. decreasing
+
+4. 48 bytes
+
+5. 0x9800008 
+   increasing
+
+6. 92 bytes 
+
