@@ -34,6 +34,7 @@ void count(char *name, FILE *file){
     }else{
         printf("%d  %d  %d\n", line_count, word_count, byte_count);
     }
+    free(line);
 } 
 
 int main(int argc, char *argv[]){
@@ -51,6 +52,9 @@ int main(int argc, char *argv[]){
              exit(1);
         }
         count(name, file);
+    }
+    if(argc == 2){
+        fclose(file);
     }
     return 0;
 }
