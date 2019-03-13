@@ -13,7 +13,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <unistd.h>
+
 
 #include "libhttp.h"
 #include "wq.h"
@@ -30,6 +30,76 @@ int server_port;
 char *server_files_directory;
 char *server_proxy_hostname;
 int server_proxy_port;
+#define MAX_SIZE 1024
+
+void http_reponse_not_found(int fd){
+    http_start_response(fd, 404);
+    http_send_header(fd, "Content-Type", "text/html");
+    http_end_headers(fd);
+    http_send_string(fd,
+                     "<center>"
+                     "<h1>File or Directory Don\'t exist</h1>"
+                     "</center>");
+}
+
+
+void http_reponse_ok(int fd, char *path){
+    http_start_response(fd, 200);
+    http_send_header(fd, "Content-Type", http_get_mime_type(path));
+
+    FILE* fp = fopen(path, "r");
+
+    if (!fp) {
+        return http_reponse_not_found(fd);
+    }
+
+    fseek(fp, 0, SEEK_END);
+    int content_length = ftell(fp);
+    char content_length_str[MAX_SIZE];
+    sprintf(content_length_str, "%d", content_length);
+    rewind(fp);
+    http_send_header(fd, "Content-Length", content_length_str);
+    http_end_headers(fd);
+
+    char *body = (char *)malloc(sizeof(char) * content_length);
+    fread(body, 1, content_length, fp);
+    http_send_string(fd, body);
+    fclose(fp);
+    free(body);
+    close(fd);
+}
+
+void http_response_list(int fd, char* absolute_path, char* relative_path) {
+      DIR *d;
+      struct dirent *dir;
+      d = opendir(absolute_path);
+      char result_buffer[MAX_SIZE];
+      memset(result_buffer, '\0', MAX_SIZE);
+      if (d) {
+          strcpy(result_buffer, "<html><body><ul>");
+          while ((dir = readdir(d)) != NULL) {
+              char link_buffer[MAX_SIZE];
+              char item_buffer[MAX_SIZE];
+              memset(link_buffer, '\0', MAX_SIZE);
+              memset(item_buffer, '\0', MAX_SIZE);
+              strcpy(link_buffer, relative_path);
+              strcat(link_buffer, "//");
+              strcat(link_buffer, dir->d_name);
+              sprintf(item_buffer, "<li><a href=\"%s\">%s</a></li>",link_buffer, dir->d_name);
+              strcat(result_buffer, item_buffer); 
+          }
+          strcat(result_buffer, "</ul></body></html>");
+          closedir(d);
+          http_start_response(fd, 200);
+          http_send_header(fd, "Content-Type", "text/html");
+          http_end_headers(fd);
+          http_send_string(fd, result_buffer);
+          close(fd);
+      }else{
+          http_reponse_not_found(fd);
+      }
+}
+
 
 
 /*
@@ -49,20 +119,61 @@ void handle_files_request(int fd) {
    * TODO: Your solution for Task 1 goes here! Feel free to delete/modify *
    * any existing code.
    */
-
+  printf("the thread number is %ld\n", pthread_self());
   struct http_request *request = http_request_parse(fd);
+  if(!request){
+      printf("%ld gets a wrong request\n", pthread_self());
+      return http_reponse_not_found(fd);
+  }
+  if(strcmp(request->method, "GET") != 0){
+      printf("%ld don\'t know the request method\n", pthread_self());
+      return http_reponse_not_found(fd); 
+  }
+  
+  printf("%ld gets a request and prepares to response\n", pthread_self());
 
-  http_start_response(fd, 200);
-  http_send_header(fd, "Content-Type", "text/html");
-  http_end_headers(fd);
-  http_send_string(fd,
-      "<center>"
-      "<h1>Welcome to httpserver!</h1>"
-      "<hr>"
-      "<p>Nothing's here yet.</p>"
-      "</center>");
+  struct stat path_stat;
+  char file_path[MAX_SIZE];
+  file_path[0] = '\0';
+  strcat(file_path, server_files_directory);
+  strcat(file_path, request->path);
+  
+  if(stat(file_path, &path_stat) == -1){
+      return http_reponse_not_found(fd);
+  }
+   
+  if(S_ISREG(path_stat.st_mode)){
+      http_reponse_ok(fd, file_path);
+  }else if(S_ISDIR(path_stat.st_mode)){
+      char html_path[MAX_SIZE];
+      memset(html_path, '\0', MAX_SIZE);
+      strcpy(html_path, file_path);
+      strcat(html_path, "//index.html");
+      FILE* fp = fopen(html_path, "r");
+      
+     if(fp){
+          http_reponse_ok(fd, html_path);
+      }else{
+          http_response_list(fd, file_path, request->path);
+      }
+  }else{
+      http_reponse_not_found(fd);
+  }
 }
 
+
+void *thread_communication(void *args){
+    int *fd_list= args;
+    int fd_from = fd_list[0];
+    int fd_to = fd_list[1];
+    char message[MAX_SIZE];
+    memset(message, '\0', MAX_SIZE);
+    int size;
+    while((size = read(fd_from, message, MAX_SIZE)) > 0){
+        write(fd_to, message, size);
+    }
+    return NULL;
+}
 
 /*
  * Opens a connection to the proxy target (hostname=server_proxy_hostname and
@@ -121,13 +232,38 @@ void handle_proxy_request(int fd) {
   /* 
   * TODO: Your solution for task 3 belongs here! 
   */
+  pthread_t proxy_server, proxy_client;
+  int proxy_server_args[] = {client_socket_fd, fd};
+  int proxy_client_args[] = {fd, client_socket_fd};
+  pthread_create(&proxy_server, NULL, thread_communication, proxy_server_args);
+  pthread_create(&proxy_client, NULL, thread_communication, proxy_client_args);
+  pthread_join(proxy_client, NULL);
+  pthread_join(proxy_server, NULL);
+  printf("Finish for one connection \n");
+  close(fd);
+  close(client_socket_fd);
 }
 
+void *thread_wait(void *args){
+    void (*request_handler)(int) = args;
+    int client_socket_number;
+    while(1){
+        client_socket_number = wq_pop(&work_queue);
+        request_handler(client_socket_number);
+        close(client_socket_number);
+    }
+    return NULL;
+}
 
 void init_thread_pool(int num_threads, void (*request_handler)(int)) {
   /*
    * TODO: Part of your solution for Task 2 goes here!
    */
+    wq_init(&work_queue);
+    pthread_t p[num_threads];
+    for(int i = 0; i < num_threads; i++){
+        pthread_create(&(p[i]), NULL, thread_wait, request_handler);
+    }
 }
 
 /*
@@ -188,12 +324,7 @@ void serve_forever(int *socket_number, void (*request_handler)(int)) {
         client_address.sin_port);
 
     // TODO: Change me?
-    request_handler(client_socket_number);
-    close(client_socket_number);
-
-    printf("Accepted connection from %s on port %d\n",
-        inet_ntoa(client_address.sin_addr),
-        client_address.sin_port);
+    wq_push(&work_queue, client_socket_number);
   }
 
   shutdown(*socket_number, SHUT_RDWR);
