@@ -91,7 +91,13 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
-
+    int64_t ticks_blocked;              /* The time that thread has been blocked*/
+    int base_priority;                  /* Base priority */
+    struct list locks;                  /* Locks that the thread is holding*/
+    struct lock *lock_waiting;          /* The lock that the thread is waiting for  */
+    fixed_point_t recent_cpu;
+    int nice;
+    
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
@@ -139,5 +145,13 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
-
+void blocked_thread_check(struct thread *, void *);
+bool thread_cmp_priority (const struct list_elem *, const struct list_elem *, void *);
+void thread_donate_priority (struct thread *);
+void thread_remove_lock (struct lock *);
+void thread_update_priority (struct thread *);
+void thread_mlfqs_increase_recent_cpu(void);
+void thread_mlfqs_update_load_avg_and_recent_cpu(void);
+void thread_each_update(struct thread *, void *);
+void thread_mlfqs_update_priority(struct thread *);
 #endif /* threads/thread.h */

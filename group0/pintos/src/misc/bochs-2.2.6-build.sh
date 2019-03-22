@@ -1,5 +1,9 @@
 #! /bin/sh -e
 
+PINTOSDIR="/usr/cs162/group0/pintos/"
+SRCDIR="/usr/bochs/"
+DSTDIR="/usr/bochs/"
+
 if test -z "$SRCDIR" || test -z "$PINTOSDIR" || test -z "$DSTDIR"; then
     echo "usage: env SRCDIR=<srcdir> PINTOSDIR=<srcdir> DSTDIR=<dstdir> sh $0"
     echo "  where <srcdir> contains bochs-2.2.6.tar.gz"
