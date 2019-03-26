@@ -99,7 +99,14 @@ void *mm_realloc(void *ptr, size_t size) {
     block_t *b, *new;
     void *newp;
     if(!ptr){
+        if(!size)
+            return NULL;
         return mm_malloc(size);
+    }else{
+        if(!size){
+            mm_free(ptr);
+            return NULL; 
+        }
     }
     if(!valid_addr(ptr)){
         return NULL;
