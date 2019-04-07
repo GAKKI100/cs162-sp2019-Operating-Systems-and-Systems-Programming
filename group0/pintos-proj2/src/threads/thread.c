@@ -76,11 +76,9 @@ static tid_t allocate_tid (void);
 
 void thread_awake (int64_t current_tick);
 
-void thread_priority_donate(struct thread *, int priority);
-
 /* Helper (Auxiliary) functions */
 static bool comparator_greater_thread_priority
-  (const struct list_elem *, const struct list_elem *, void *aux);
+  (const struct list_elem *, const struct list_elem *, void *aux UNUSED);
 
 
 /* Initializes the threading system by transforming the code
@@ -368,6 +366,16 @@ thread_exit (void)
   process_exit ();
 #endif
 
+  struct thread *cur = thread_current();
+
+  //release all locks
+  struct list_elem *e;
+  for(e = list_begin(&cur->locks); e != list_end(&cur->locks);
+     e = list_next(e)){
+      struct lock *lock = list_entry(e, struct lock, lockelem);
+      lock_release(lock); 
+  }
+
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
@@ -595,6 +603,14 @@ init_thread (struct thread *t, const char *name, int priority)
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
+
+#ifdef USERPROG
+  //init process-relateed infomations
+  list_init(&t->child_list);
+  list_init(&t->file_descriptors);
+  t->executing_file = NULL;
+  t->pcb = NULL;
+#endif
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

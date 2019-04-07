@@ -103,6 +103,14 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+
+    //project 2:file descriptors and process table
+    /* Owned by useprog/process.c and userprog/syscall.c */
+    struct list file_descriptors;  /* List of file_descriptors the thread contains */
+    struct process_control_block *pcb; //Process Control Block
+    struct list child_list; /* List of children process of the 
+                            thread, each item is define by pcb elem */
+    struct file *executing_file; /* The execute file of the associated process*/
 #endif
 
     /* Owned by thread.c. */
@@ -117,6 +125,7 @@ extern bool thread_mlfqs;
 void thread_init (void);
 void thread_start (void);
 
+void thread_pririty_donate(struct thread *, int);
 void thread_tick (int64_t tick);
 void thread_print_stats (void);
 
