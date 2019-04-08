@@ -78,7 +78,7 @@ void thread_awake (int64_t current_tick);
 
 /* Helper (Auxiliary) functions */
 static bool comparator_greater_thread_priority
-  (const struct list_elem *, const struct list_elem *, void *aux UNUSED);
+  (const struct list_elem *, const struct list_elem *, void *aux);
 
 
 /* Initializes the threading system by transforming the code
@@ -730,7 +730,7 @@ allocate_tid (void)
 static bool
 comparator_greater_thread_priority (
     const struct list_elem *a,
-    const struct list_elem *b, void *aux)
+    const struct list_elem *b, void *aux UNUSED)
 {
   struct thread *ta, *tb;
   ASSERT (a != NULL);

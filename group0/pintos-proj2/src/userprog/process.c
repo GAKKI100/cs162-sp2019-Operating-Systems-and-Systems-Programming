@@ -1,9 +1,11 @@
+#include "userprog/process.h"
+#include "userprog/syscall.h"
+#include <debug.h>
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <debug.h>
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
@@ -17,8 +19,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "vm/frame.h"
-#include "userprog/process.h"
-#include "userprog/syscall.h"
+
 
 #ifndef VM
 //alternative of vm-related function introduced in proj3

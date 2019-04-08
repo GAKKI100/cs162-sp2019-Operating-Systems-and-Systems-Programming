@@ -24,12 +24,12 @@ struct frame_table_entry{
     struct hash_elem elem; /* see  frame_map*/
     void *upage;   /* User(Virtual Memory) Address, pointer to page*/
     struct thread *t;
-}
+};
 
 void
 vm_frame_init(void){
     lock_init(&frame_lock);
-    hash_init(&fame_map, frame_hash_func, frame_less_func, NULL);
+    hash_init(&frame_map, frame_hash_func, frame_less_func, NULL);
 }
 
 /*
@@ -55,7 +55,7 @@ vm_frame_allocate(enum palloc_flags flags){
     
     frame->t = thread_current();
     frame->upage = vpage;  // the virtual address
-    frame->physical_addr = (void *)vtop(vpage) // the associated physical address
+    frame->physical_addr = (void *)vtop(vpage); // the associated physical address
     
     //insert into hash table
     lock_acquire(&frame_lock);
@@ -83,7 +83,7 @@ vm_frame_free(void *vpage){
     struct hash_elem *h = hash_find(&frame_map, &f->elem);
     free(f);
     if(h == NULL){
-        PANIC("The page to be freed is not stored in the table")
+        PANIC("The page to be freed is not stored in the table");
     }
     
     f = hash_entry(h, struct frame_table_entry, elem);
@@ -114,8 +114,8 @@ frame_hash_func(const struct hash_elem *elem, void *aux UNUSED){
 }
 
 static bool
-frame_less_func(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUESD){
-    struct frame_table_entry *a_entry = hash_entry(a, struct_entry, elem);
-    struct frame_table_entry *b_entry = hash_entry(b, struct_entry, elem);
-    return a_entry->physical_addr < b->physical_addr;  
+frame_less_func(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED){
+    struct frame_table_entry *a_entry = hash_entry(a, struct frame_table_entry, elem);
+    struct frame_table_entry *b_entry = hash_entry(b, struct frame_table_entry, elem);
+    return a_entry->physical_addr < b_entry->physical_addr;  
 }
