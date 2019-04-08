@@ -304,8 +304,7 @@ sys_create(const char *filename, unsigned initial_size){
 int
 sys_open(const char *file){
     //memory validation
-    if(get_user((const uint8_t *)file) == -1)
-        fail_invalid_access();
+    check_user((const uint8_t*) file);
     
     struct file_desc *fd = palloc_get_page(0);
     if(!fd){
