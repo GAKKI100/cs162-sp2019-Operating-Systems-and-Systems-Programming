@@ -22,6 +22,7 @@
 #include "threads/palloc.h"
 #include "threads/pte.h"
 #include "threads/thread.h"
+
 #ifdef USERPROG
 #include "userprog/process.h"
 #include "userprog/exception.h"
@@ -31,9 +32,12 @@
 #else
 #include "tests/threads/tests.h"
 #endif
+
 #ifdef VM
 #include "vm/frame.h"
+#include "vm/swap.h"
 #endif
+
 #ifdef FILESYS
 #include "devices/block.h"
 #include "devices/ide.h"
@@ -133,6 +137,10 @@ main (void)
   ide_init ();
   locate_block_devices ();
   filesys_init (format_filesys);
+#endif
+
+#ifdef VM
+  vm_swap_init();
 #endif
 
   printf ("Boot complete.\n");

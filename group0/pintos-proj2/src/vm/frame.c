@@ -1,4 +1,5 @@
 #include <hash.h>
+#include <stdio.h>
 #include "lib/kernel/hash.h"
 
 #include "vm/frame.h"
@@ -6,6 +7,7 @@
 #include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/vaddr.h"
+#include "userprog/pagedir.h"
 
 /* A global lock, to ensure citical sections on frame operation.*/
 static struct lock frame_lock;
@@ -20,11 +22,17 @@ static bool frame_less_func(const struct hash_elem *, const struct hash_elem *, 
  * Frame Table Entry
  */
 struct frame_table_entry{
-    void *physical_addr;  /* Physical Address(= Kernel Address, in PintOS) */
+    void *kpage;  /* Kernel page, mapped to physical address */
     struct hash_elem elem; /* see  frame_map*/
     void *upage;   /* User(Virtual Memory) Address, pointer to page*/
     struct thread *t;
+    bool pinned;     /* Used to prevented a frame from being evicted,
+                      * while it's acquiring some resources.
+                      * If it's true, it's never evicted.
+                      */
 };
+
+struct frame_table_entry *pick_frame_to_evict(void);
 
 void
 vm_frame_init(void){
@@ -33,17 +41,32 @@ vm_frame_init(void){
 }
 
 /*
- * Allocate a new frame, and return the address of the associated
- * page on user's virtual memory
+ * Allocate a new frame, 
+ * and return the address of the associated
  */
 
 void *
-vm_frame_allocate(enum palloc_flags flags){
-    void *vpage = palloc_get_page(PAL_USER | flags);
+vm_frame_allocate(enum palloc_flags flags, void *upage){
+    void *frame_page = palloc_get_page(PAL_USER | flags);
     
-    if(vpage == NULL){
-        //page allocation failed. need swapping out after
-        return NULL;
+    if(frame_page == NULL){
+        //page allocation failed. 
+        
+        /* first, swap out the page  */
+        struct frame_table_entry *f_evicted = pick_frame_to_evict();
+        ASSERT(f_evicted->t != NULL);
+       
+        //clear the page mapping, and replace it with swap
+        pagedir_clear_page(f_evicted->t->pagedir, f_evicted->upage);
+        
+        swap_index_t swap_idx = vm_swap_out(f_evicted->kpage);
+        vm_supt_set_swap(f_evicted->t->supt, f_evicted->upage, swap_idx);
+
+        /* update the page table, and free the frame table */
+        vm_frame_free(f_evicted->kpage);
+        
+        frame_page = palloc_get_page(PAL_USER | flags);
+        ASSERT(frame_page != NULL); // should success in this chance
     }
     
     struct frame_table_entry *frame = malloc(sizeof(struct frame_table_entry));
@@ -54,38 +77,36 @@ vm_frame_allocate(enum palloc_flags flags){
     }
     
     frame->t = thread_current();
-    frame->upage = vpage;  // the virtual address
-    frame->physical_addr = (void *)vtop(vpage); // the associated physical address
+    frame->upage = upage;
+    frame->kpage = frame_page;
+    frame->pinned = true;  //can't be evicted yet
     
     //insert into hash table
     lock_acquire(&frame_lock);
     hash_insert(&frame_map, &frame->elem);
     lock_release(&frame_lock);
    
-    return vpage;
+    return frame_page;
 }
 
 /*
  * Deallocate a frame or page
  */
 void
-vm_frame_free(void *vpage){
-    //check page-alligned
-    if((PGMASK & (unsigned)vpage) == 0){
-        PANIC("vm_frame_free is not aligned - aborting");
-    }
+vm_frame_free(void *kpage){
+    ASSERT(is_kernel_vaddr(kpage));
+    ASSERT(pg_ofs(kpage) == 0); // should be aligned
 
     //hash lookup : a temporary entry
-    struct frame_table_entry *f = (struct frame_table_entry *)malloc(sizeof(struct frame_table_entry));
+    struct frame_table_entry f_tmp;
+    f_tmp.kpage = kpage;
 
-    f->physical_addr = (void *)vtop(vpage);
-
-    struct hash_elem *h = hash_find(&frame_map, &f->elem);
-    free(f);
+    struct hash_elem *h = hash_find(&frame_map, &(f_tmp.elem));
     if(h == NULL){
         PANIC("The page to be freed is not stored in the table");
     }
     
+    struct frame_table_entry *f;
     f = hash_entry(h, struct frame_table_entry, elem);
     
     lock_acquire(&frame_lock);
@@ -93,29 +114,69 @@ vm_frame_free(void *vpage){
     lock_release(&frame_lock);
    
     //free resources
-    palloc_free_page(f->upage);
-    free(f);
-    
-    lock_acquire(&frame_lock);
-    hash_delete(&frame_map, &f->elem);
-    lock_release(&frame_lock);
-
-    //free resources
-    palloc_free_page(f->upage);
+    palloc_free_page(kpage);
     free(f);
 }
 
+/* Frame Eviction Strategy */
+struct frame_table_entry *pick_frame_to_evict(void){
+    //TODO: implement clock-algorithm
+
+    //as of new, use the simplest one -- random
+    size_t n = hash_size(&frame_map);
+    static unsigned prng = 1;
+    while(1){
+        prng = prng * 1664525u + 1013904223u;
+        size_t pointer = prng % n;
+
+        struct hash_iterator it;
+        hash_first(&it, &frame_map);
+
+        size_t i;
+        for(i = 0; i <= pointer; i++)
+            hash_next(&it);
+        
+        struct frame_table_entry *e = hash_entry(hash_cur(&it), struct frame_table_entry, elem);
+        if(e->pinned){
+            //it's pinned. try again
+            printf("pinned, continue\n");
+            continue; 
+        }else{
+            return e;
+        }
+    }
+}
+
+void
+vm_frame_unpin(void *kpage){
+    lock_acquire(&frame_lock);
+
+    //hash lookup : a temporary entry
+    struct frame_table_entry f_tmp;
+    f_tmp.kpage = kpage;
+    struct hash_elem *h = hash_find(&frame_map, &(f_tmp.elem));
+    if(h == NULL){
+        PANIC("The frame to be unpinned does not exist");
+    }
+    
+    struct frame_table_entry *f;
+    f = hash_entry(h, struct frame_table_entry, elem);
+    f->pinned = false; // unpin
+    
+    lock_release(&frame_lock);
+}
+
 /* Helpers */
-//hash Function requires for[frame_map]. Use 'kaddr' as key.
+//hash Function requires for[frame_map]. Use 'kpage' as key.
 static unsigned 
 frame_hash_func(const struct hash_elem *elem, void *aux UNUSED){
     struct frame_table_entry *entry = hash_entry(elem, struct frame_table_entry, elem);
-    return hash_bytes(&entry->physical_addr, sizeof(entry->physical_addr));
+    return hash_bytes(&entry->kpage, sizeof(entry->kpage));
 }
 
 static bool
 frame_less_func(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED){
     struct frame_table_entry *a_entry = hash_entry(a, struct frame_table_entry, elem);
     struct frame_table_entry *b_entry = hash_entry(b, struct frame_table_entry, elem);
-    return a_entry->physical_addr < b_entry->physical_addr;  
+    return a_entry->kpage < b_entry->kpage;  
 }

@@ -5,6 +5,10 @@
 #include <list.h>
 #include <stdint.h>
 
+#ifdef VM
+#include "vm/page.h"
+#endif
+
 /* States in a thread's life cycle. */
 enum thread_status
   {
@@ -111,6 +115,16 @@ struct thread
     struct list child_list; /* List of children process of the 
                             thread, each item is define by pcb elem */
     struct file *executing_file; /* The execute file of the associated process*/
+    uint8_t *current_esp;   /* The current value of the user program's stack 
+                               pointer. A page fault might occur in the kernel,
+                               so we might need to store esp on transition to 
+                               kernel mode  
+                             */
+#endif
+
+#ifdef VM
+    //proj3: Supplement page table.
+    struct supplemental_page_table *supt; /* Supplemental Page Table*/
 #endif
 
     /* Owned by thread.c. */

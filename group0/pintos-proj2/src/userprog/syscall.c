@@ -75,6 +75,11 @@ syscall_handler (struct intr_frame *f)
 
   _DEBUG_PRINTF ("[DEBUG] system call, number = %d!\n", syscall_number);
 
+  /* Store the esp, which needed in the page fault handler.
+   * refer to exception.c page_fault()
+   */
+  thread_current()->current_esp = f->esp;
+
   // Dispatch w.r.t system call number
   // SYS_*** constants are defined in syscall-nr.h
   switch (syscall_number) {
@@ -350,8 +355,7 @@ sys_filesize(int fd){
 bool
 sys_remove(const char *filename){
     //memory  validation
-    if(get_user((const uint8_t *)filename) == -1)
-        fail_invalid_access();
+    check_user((const uint8_t *)filename);
     lock_acquire(&filesys_lock);
     bool return_code = filesys_remove(filename);
     lock_release(&filesys_lock);

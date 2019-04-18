@@ -13,17 +13,18 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "threads/flags.h"
+#include "threads/malloc.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "vm/frame.h"
-
+#include "vm/page.h"
 
 #ifndef VM
 //alternative of vm-related function introduced in proj3
-#define vm_frame_allocate(x) palloc_get_page(x)
+#define vm_frame_allocate(x, y) palloc_get_page(x)
 #define vm_frame_free(x) palloc_free_page(x)
 #endif
 
@@ -302,6 +303,12 @@ process_exit (void)
   if(cur->pcb->orphan == true)
       palloc_free_page(&cur->pcb);
 
+#ifdef VM
+  //Destroy the SPTE
+  free(cur->supt);
+  cur->supt = NULL;
+#endif
+
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -421,9 +428,14 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
+#ifdef VM
+  t->supt = vm_supt_create();
+#endif
+
   if (t->pagedir == NULL)
     goto done;
   process_activate ();
+
 
   /* Open executable file. */
   file = filesys_open (file_name);
@@ -605,8 +617,18 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
+#ifdef VM
+      //Lazy load
+      struct thread *cur = thread_current();
+      ASSERT(pagedir_get_page(cur->pagedir, upage) == NULL); // no virtual page
+      
+      if(!vm_supt_install_filesys(cur->supt, upage, file, ofs,
+          page_read_bytes, page_zero_bytes, writable)){
+          return false;
+      }
+#else
       /* Get a page of memory. */
-      uint8_t *kpage = vm_frame_allocate (PAL_USER);
+      uint8_t *kpage = vm_frame_allocate (PAL_USER, upage);
       if (kpage == NULL)
         return false;
 
@@ -624,12 +646,16 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
           vm_frame_free(kpage);
           return false;
         }
+#endif
 
       /* Advance. */
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
     }
+#ifdef VM
+  ofs += PGSIZE;
+#endif
   return true;
 }
 
@@ -682,14 +708,15 @@ setup_stack (void **esp)
   uint8_t *kpage;
   bool success = false;
 
-  kpage = vm_frame_allocate(PAL_USER | PAL_ZERO);
+  //upage address is the first segment of stack
+  kpage = vm_frame_allocate(PAL_USER | PAL_ZERO, PHYS_BASE - PGSIZE);
   if (kpage != NULL)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
         *esp = PHYS_BASE;
       else
-        palloc_free_page (kpage);
+        vm_frame_free(kpage);
     }
   return success;
 }
@@ -710,6 +737,12 @@ install_page (void *upage, void *kpage, bool writable)
 
   /* Verify that there's not already a page at that virtual
      address, then map our page there. */
-  return (pagedir_get_page (t->pagedir, upage) == NULL
-          && pagedir_set_page (t->pagedir, upage, kpage, writable));
+  bool success = (pagedir_get_page(t->pagedir, upage) == NULL);
+  success = success && pagedir_set_page(t->pagedir, upage, kpage, writable);
+#ifdef VM
+  success = success && vm_supt_set_page(t->supt, upage);
+  if(success)
+      vm_frame_unpin(kpage);
+#endif
+  return success;
 }
