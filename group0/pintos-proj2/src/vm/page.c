@@ -15,6 +15,8 @@
 static unsigned spte_hash_func(const struct hash_elem *, void *);
 static bool spte_less_func(const struct hash_elem *, const struct hash_elem *, void *);
 static void spte_destroy_func(struct hash_elem *, void *);
+static bool vm_load_page_from_filesys(struct supplemental_page_table_entry *, void *);
+
 
 
 struct supplemental_page_table *
@@ -31,6 +33,93 @@ vm_supt_destroy(struct supplemental_page_table *supt){
     
     hash_destroy(&supt->page_map, spte_destroy_func);
     free(supt);
+}
+
+/* Install a page (specified by the starting address 'upage') which
+ * is currently on the frame, in the supplemental page table
+ * Return true if successful, and false otherwith
+ * (In case of failure, a proper handing is required later -- process.c)
+ */
+bool
+vm_supt_set_page(struct supplemental_page_table *supt, void *upage){
+    struct supplemental_page_table_entry *spte;
+    spte = (struct supplemental_page_table_entry *)malloc(sizeof(struct supplemental_page_table_entry));
+    
+    spte->upage = upage;
+    spte->status = ON_FRAME;
+    spte->swap_index = -1;
+    
+    struct hash_elem *prev_elem;
+    prev_elem = hash_insert(&supt->page_map, &spte->elem);
+    if(prev_elem == NULL){
+        //successfullu insert into the supplemental page table
+        return true;
+    }else{
+        //failed. there is already an entry
+        free(spte);
+        return false;
+    }
+}
+
+
+/* Install a page (specified by the starting address 'upage')
+ * on the supplemental page table. The page is of type ALL_ZERO,
+ * indicates that all the bytes is (lazily) zero
+ */
+bool
+vm_supt_install_zeropage(struct supplemental_page_table *supt, void *upage){
+    struct supplemental_page_table_entry *spte;
+    spte = (struct supplemental_page_table_entry *)malloc(sizeof(struct supplemental_page_table_entry));
+
+    spte->upage = upage;
+    spte->status = ALL_ZERO;
+   
+    struct hash_elem *prev_elem;
+    prev_elem = hash_insert(&supt->page_map, &spte->elem);
+    if(prev_elem == NULL) return true;
+    
+    //TODO there is already an entry
+    PANIC("Duplicated SUPT entry for zeropage");
+    return false;
+}
+
+
+bool
+vm_supt_set_swap(struct supplemental_page_table *supt, void *page, swap_index_t swap_index){
+    struct supplemental_page_table_entry *spte;
+    spte = vm_supt_lookup(supt, page);
+    
+    if(spte == NULL) return false;
+    
+    spte->status = ON_SWAP;
+    spte->swap_index = swap_index;
+    return true;
+}
+
+/* Install a page (specified by the starting address 'upage')
+ * on the supplemental page table, of type FROM_FILESYS.
+ */
+bool
+vm_supt_install_filesys(struct supplemental_page_table *supt, void *upage, 
+struct file *file, off_t offset, uint32_t read_bytes, uint32_t zero_bytes, bool writable){
+     struct supplemental_page_table_entry *spte;
+     spte = (struct supplemental_page_table_entry *)malloc(sizeof(struct supplemental_page_table_entry));
+     
+     spte->upage = upage;
+     spte->status = FROM_FILESYS;
+     spte->file = file;
+     spte->file_offset = offset;
+     spte->read_bytes = read_bytes;
+     spte->zero_bytes = zero_bytes;
+     spte->writable = writable;
+     
+     struct hash_elem *prev_elem;
+     prev_elem = hash_insert(&supt->page_map, &spte->elem);
+     if(prev_elem == NULL) return true;
+     
+     //TODO there is already an entry
+     PANIC("Duplicated SUPT entry for filesys-page");
+     return false;
 }
 
 struct supplemental_page_table_entry *
@@ -54,29 +143,6 @@ vm_supt_has_entry(struct supplemental_page_table *supt, void *page){
     return true; 
 }
 
-/* Install a page (specified by the starting address 'upage')
- * on the supplemental page table. The page is of type ALL_ZERO,
- * indicates that all the bytes is (lazily) zero
- */
-bool
-vm_supt_install_zeropage(struct supplemental_page_table *supt, void *upage){
-    struct supplemental_page_table_entry *spte;
-    spte = (struct supplemental_page_table_entry *)malloc(sizeof(struct supplemental_page_table_entry));
-
-    spte->upage = upage;
-    spte->status = ALL_ZERO;
-   
-    struct hash_elem *prev_elem;
-    prev_elem = hash_insert(&supt->page_map, &spte->elem);
-    if(prev_elem == NULL) return true;
-    
-    //TODO there is already an entry
-    PANIC("Duplicated SUPT entry for zeropage");
-    return false;
-}
-
-static bool
-vm_load_page_from_filesys(struct supplemental_page_table_entry *, void *);
 
 bool
 vm_load_page(struct supplemental_page_table *supt, uint32_t *pagedir, void *upage){
@@ -130,69 +196,7 @@ vm_load_page(struct supplemental_page_table *supt, uint32_t *pagedir, void *upag
     return true;
 }
 
-/* Install a page (specified by the starting address 'upage') which
- * is currently on the frame, in the supplemental page table
- * Return true if successful, and false otherwith
- * (In case of failure, a proper handing is required later -- process.c)
- */
-bool
-vm_supt_set_page(struct supplemental_page_table *supt, void *upage){
-    struct supplemental_page_table_entry *spte;
-    spte = (struct supplemental_page_table_entry *)malloc(sizeof(struct supplemental_page_table_entry));
-    
-    spte->upage = upage;
-    spte->status = ON_FRAME;
-    spte->swap_index = -1;
-    
-    struct hash_elem *prev_elem;
-    prev_elem = hash_insert(&supt->page_map, &spte->elem);
-    if(prev_elem == NULL){
-        //successfullu insert into the supplemental page table
-        return true;
-    }else{
-        //failed. there is already an entry
-        free(spte);
-        return false;
-    }
-}
 
-bool
-vm_supt_set_swap(struct supplemental_page_table *supt, void *page, swap_index_t swap_index){
-    struct supplemental_page_table_entry *spte;
-    spte = vm_supt_lookup(supt, page);
-    
-    if(spte == NULL) return false;
-    
-    spte->status = ON_SWAP;
-    spte->swap_index = swap_index;
-    return true;
-}
-
-/* Install a page (specified by the starting address 'upage')
- * on the supplemental page table, of type FROM_FILESYS.
- */
-bool
-vm_supt_install_filesys(struct supplemental_page_table *supt, void *upage, 
-struct file *file, off_t offset, uint32_t read_bytes, uint32_t zero_bytes, bool writable){
-     struct supplemental_page_table_entry *spte;
-     spte = (struct supplemental_page_table_entry *)malloc(sizeof(struct supplemental_page_table_entry));
-     
-     spte->upage = upage;
-     spte->status = FROM_FILESYS;
-     spte->file = file;
-     spte->file_offset = offset;
-     spte->read_bytes = read_bytes;
-     spte->zero_bytes = zero_bytes;
-     spte->writable = writable;
-     
-     struct hash_elem *prev_elem;
-     prev_elem = hash_insert(&supt->page_map, &spte->elem);
-     if(prev_elem == NULL) return true;
-     
-     //TODO there is already an entry
-     PANIC("Duplicated SUPT entry for filesys-page");
-     return false;
-}
 
 static bool
 vm_load_page_from_filesys(struct supplemental_page_table_entry *spte, void *kpage){
